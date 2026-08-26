@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+  ====================================================================
+  SCHÉMA LOGIQUE ÉLECTRONIQUE : SYSTÈME D'ARROSage AUTOMATIQUE
+  ====================================================================
+  Description : Circuit de contrôle logique pour l'activation d'une
+  pompe d'irrigation basée sur les conditions de sol, de lumière,
+  et des sécurités manuelles.
+-->
+<schematic id="SCH-2026-IRRIG-001" name="Contrôleur d'Irrigation Intelligent" version="1.2.0">
+  
+  <!-- MÉTADONNÉES DU PROJET -->
+  <metadata>
+    <title>Système de Contrôle d'Irrigation Agricole</title>
+    <author>Équipe Ingénierie Systèmes Embarqués</author>
+    <company>AgriTech Solutions Inc.</company>
+    <created_at>2026-03-15</created_at>
+    <last_modified>2026-08-26</last_modified>
+    <license>MIT</license>
+    <description>
+      Ce schéma définit la logique combinatoire de sécurité et d'activation 
+      d'une vanne d'irrigation. L'arrosage s'active si le sol est sec, 
+      qu'il fait nuit (pour éviter l'évaporation), que le réservoir contient 
+      suffisamment d'eau, et que l'arrêt d'urgence n'est pas déclenché.
+    </description>
+    <specifications>
+      <supply_voltage unit="V" min="3.3" nominal="5.0" max="12.0"/>
+      <operating_temperature unit="C" min="-20" max="70"/>
+      <logic_family>CMOS 4000 Series / Soft-Logic Microcontroller</logic_family>
+    </specifications>
+  </metadata>
+
+  <!-- DÉCLARATION DES ENTRÉES (CAPTEURS ET COMMUTATEURS) -->
+  <inputs>
+    <input id="IN_SOIL_DRY" name="Sol_Sec" type="sensor_digital">
+      <description>HIGH (1) quand l'humidité du sol est inférieure au seuil critique (sol sec).</description>
+    </input>
+    <input id="IN_IS_NIGHT" name="Nuit_Detectee" type="sensor_digital">
+      <description>HIGH (1) quand la luminosité ambiante est faible (capteur crépusculaire).</description>
+    </input>
+    <input id="IN_WATER_LOW" name="Niveau_Eau_Bas" type="sensor_digital">
+      <description>HIGH (1) si le niveau de la réserve d'eau est trop bas (alerte niveau).</description>
+    </input>
+    <input id="IN_EMERGENCY_STOP" name="Arret_Urgence" type="switch_manual">
+      <description>HIGH (1) si le bouton coupure d'urgence manuel est enfoncé.</description>
+    </input>
+    <input id="IN_MANUAL_OVERRIDE" name="Marche_Forcee" type="switch_manual">
+      <description>HIGH (1) si l'utilisateur active l'arrosage manuel via l'IHM.</description>
+    </input>
+  </inputs>
+
+  <!-- RÉSEAU DE PORTES LOGIQUES ET TRAITEMENT -->
+  <logic_network>
+    
+    <!-- ÉTAPE 1 : INVERSION DES SÉCURITÉS -->
+    <!-- Inverser Niveau_Eau_Bas pour avoir EAU_OK (1 = assez d'eau) -->
+    <gate id="GATE_NOT_1" type="NOT" label="Inversion Niveau Eau">
+      <input pin="A" ref="IN_WATER_LOW" />
+      <output pin="Y" net="NET_WATER_OK" />
+    </gate>
+
+    <!-- Inverser Arret_Urgence pour avoir SYSTEM_SAFE (1 = pas d'urgence) -->
+    <gate id="GATE_NOT_2" type="NOT" label="Inversion Urgence">
+      <input pin="A" ref="IN_EMERGENCY_STOP" />
+      <output pin="Y" net="NET_SYSTEM_SAFE" />
+    </gate>
+
+    <!-- ÉTAPE 2 : CONDITION AUTO (Sol Sec ET Nuit) -->
+    <gate id="GATE_AND_1" type="AND" label="Condition Météo Auto">
+      <input pin="A" ref="IN_SOIL_DRY" />
+      <input pin="B" ref="IN_IS_NIGHT" />
+      <output pin="Y" net="NET_AUTO_CONDITION" />
+    </gate>
+
+    <!-- ÉTAPE 3 : COMBINAISON AUTO OU MARCHE FORCÉE -->
+    <gate id="GATE_OR_1" type="OR" label="Choix Auto / Manuel">
+      <input pin="A" ref="NET_AUTO_CONDITION" />
+      <input pin="B" ref="IN_MANUAL_OVERRIDE" />
+      <output pin="Y" net="NET_REQUEST_PUMP" />
+    </gate>
+
+    <!-- ÉTAPE 4 : SÉCURITÉ GLOBALE (Demande ET Eau_OK ET Sécurité_OK) -->
+    <gate id="GATE_AND_2" type="AND_3" label="Validation Sécurité Finale">
+      <input pin="A" ref="NET_REQUEST_PUMP" />
+      <input pin="B" ref="NET_WATER_OK" />
+      <input pin="C" ref="NET_SYSTEM_SAFE" />
+      <output pin="Y" net="NET_PUMP_TRIGGER" />
+    </gate>
+
+  </logic_network>
+
+  <!-- DÉCLARATION DES SORTIES (ACTIONNEURS ET VOYANTS) -->
+  <outputs>
+    <output id="OUT_VALVE_RELAY" name="Commande_Relais_Pompe" ref="NET_PUMP_TRIGGER" type="actuator_relay">
+      <description>Active le relais de puissance alimentant l'électrovanne d'arrosage.</description>
+    </output>
+    <output id="OUT_LED_ALARM" name="Voyant_Defaut_Eau" ref="IN_WATER_LOW" type="indicator_led">
+      <description>Allume une LED rouge d'avertissement en cas de manque d'eau.</description>
+    </output>
+  </outputs>
+
+  <!-- TABLE DE VÉRITÉ DE VÉRIFICATION (ÉVALUATION ATTENDUE) -->
+  <test_vectors>
+    <vector case="1" comment="Cas nominal automatique : Sol sec, Nuit, Eau OK, Pas d'urgence -> Pompe ON">
+      <inputs IN_SOIL_DRY="1" IN_IS_NIGHT="1" IN_WATER_LOW="0" IN_EMERGENCY_STOP="0" IN_MANUAL_OVERRIDE="0"/>
+      <expected_outputs OUT_VALVE_RELAY="1" OUT_LED_ALARM="0"/>
+    </vector>
+    <vector case="2" comment="Blocage jour : Sol sec mais Jour -> Pompe OFF">
+      <inputs IN_SOIL_DRY="1" IN_IS_NIGHT="0" IN_WATER_LOW="0" IN_EMERGENCY_STOP="0" IN_MANUAL_OVERRIDE="0"/>
+      <expected_outputs OUT_VALVE_RELAY="0" OUT_LED_ALARM="0"/>
+    </vector>
+    <vector case="3" comment="Sécurité niveau d'eau : Sol sec, Nuit, mais Manque d'eau -> Pompe OFF + Alarme ON">
+      <inputs IN_SOIL_DRY="1" IN_IS_NIGHT="1" IN_WATER_LOW="1" IN_EMERGENCY_STOP="0" IN_MANUAL_OVERRIDE="0"/>
+      <expected_outputs OUT_VALVE_RELAY="0" OUT_LED_ALARM="1"/>
+    </vector>
+    <vector case="4" comment="Marche forcée avec eau et sans urgence -> Pompe ON">
+      <inputs IN_SOIL_DRY="0" IN_IS_NIGHT="0" IN_WATER_LOW="0" IN_EMERGENCY_STOP="0" IN_MANUAL_OVERRIDE="1"/>
+      <expected_outputs OUT_VALVE_RELAY="1" OUT_LED_ALARM="0"/>
+    </vector>
+  </test_vectors>
+
+</schematic>
